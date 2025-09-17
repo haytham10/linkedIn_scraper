@@ -1,4 +1,17 @@
+
 # LinkedIn Lead Scraper & AI Refinement Tool
+
+## 📜 Changelog
+
+### 2025-09-17
+- Company name extraction improved: removes employment type (e.g., ' · Full-time')
+- Person data extraction now infers title, company name, and company LinkedIn URL directly from experience
+
+### 2025-09-16
+- Initial professional code organization for GitHub publication
+- Added Google Apps Script for AI-powered lead refinement
+- Comprehensive README, .env.example, requirements.txt, and .gitignore added
+
 
 A comprehensive solution for automated LinkedIn lead generation and AI-powered lead analysis. This tool scrapes LinkedIn profiles, extracts key information, and uses Google's Gemini AI to generate personalized outreach insights.
 
