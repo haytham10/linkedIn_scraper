@@ -181,35 +181,32 @@ def extract_person_data(person_url: str, driver: webdriver.Chrome) -> Dict[str, 
         Dict containing extracted person data
     """
     logger.info(f"Extracting person data from: {person_url}")
-    
     try:
         smart_delay(2, 4)  # Respectful delay
-        
         person = Person(person_url, driver=driver, scrape=True, close_on_complete=False)
-        
-        # Extract basic information
+
+        # Infer directly from experience
+        experiences = getattr(person, 'experiences', [])
+        if experiences and len(experiences) > 0:
+            current_exp = experiences[0]
+            title = getattr(current_exp, 'position_title', '') or 'Title Not Found'
+            raw_company_name = getattr(current_exp, 'institution_name', '') or 'Company Not Found'
+            # Remove anything after ' · '
+            company_name = raw_company_name.split(' · ')[0].strip() if ' · ' in raw_company_name else raw_company_name.strip()
+            company_linkedin_url = getattr(current_exp, 'linkedin_url', '') or 'N/A'
+        else:
+            title = 'Title Not Found'
+            company_name = 'Company Not Found'
+            company_linkedin_url = 'N/A'
+
         name = getattr(person, 'name', 'N/A')
-        title = getattr(person, 'title', None)
-        company_name = getattr(person, 'company', 'N/A')
-        company_linkedin_url = getattr(person, 'company_linkedin_url', None)
-        
-        # Enhanced title inference
-        if not title or title.strip() == "":
-            title = infer_title_from_experience(person, company_name)
-            
-        # Enhanced company URL construction
-        if not company_linkedin_url or company_linkedin_url == "N/A":
-            company_linkedin_url = infer_company_url_from_experience(person)
-        
         logger.info(f"Extracted data for {name} at {company_name}")
-        
         return {
             'name': name or 'N/A',
-            'title': title or 'Title Not Found',
-            'company_name': company_name or 'N/A',
-            'company_linkedin_url': company_linkedin_url or 'N/A'
+            'title': title,
+            'company_name': company_name,
+            'company_linkedin_url': company_linkedin_url
         }
-        
     except Exception as e:
         logger.error(f"Failed to extract person data: {e}")
         return {
@@ -219,64 +216,6 @@ def extract_person_data(person_url: str, driver: webdriver.Chrome) -> Dict[str, 
             'company_linkedin_url': 'Extraction Failed'
         }
 
-def infer_title_from_experience(person: Person, company_name: str) -> str:
-    """
-    Attempt to infer job title from experience data.
-    
-    Args:
-        person: LinkedIn Person object
-        company_name: Current company name
-        
-    Returns:
-        Inferred title or default message
-    """
-    logger.info("Attempting to infer title from experience...")
-    
-    experiences = getattr(person, 'experiences', [])
-    if not experiences:
-        return "Title Not Found"
-    
-    current_exp = experiences[0]
-    
-    # Check if current experience matches company
-    if getattr(current_exp, 'institution_name', '').lower() == company_name.lower():
-        inferred_title = getattr(current_exp, 'position_title', None)
-        
-        if not inferred_title or inferred_title.strip() == "":
-            # Try to extract from description
-            desc = getattr(current_exp, 'description', '')
-            if desc:
-                inferred_title = desc.split('\n')[0].split('.')[0].strip()[:50] + "..."
-            else:
-                inferred_title = "Role Not Specified"
-        
-        logger.info(f"Inferred title: {inferred_title}")
-        return inferred_title
-    
-    return "Title Not Found"
-
-def infer_company_url_from_experience(person: Person) -> Optional[str]:
-    """
-    Attempt to infer company LinkedIn URL from experience data.
-    
-    Args:
-        person: LinkedIn Person object
-        
-    Returns:
-        Company LinkedIn URL or None
-    """
-    experiences = getattr(person, 'experiences', [])
-    if not experiences:
-        return None
-    
-    current_exp = experiences[0]
-    exp_company_url = getattr(current_exp, 'linkedin_url', None)
-    
-    if exp_company_url:
-        logger.info(f"Inferred company URL: {exp_company_url}")
-        return exp_company_url.strip()
-    
-    return None
 
 def extract_company_data(company_url: str, driver: webdriver.Chrome) -> Dict[str, str]:
     """
