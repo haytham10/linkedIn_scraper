@@ -1,0 +1,245 @@
+# LinkedIn Lead Scraper - Git Ignore Rules
+# ==========================================
+
+# Sensitive Configuration Files
+# NEVER commit these files - they contain credentials and API keys
+.env
+credentials.json
+**/credentials.json
+.env.local
+.env.production
+
+# Log Files
+*.log
+logs/
+scraper.log*
+
+# Python
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Virtual Environments
+.env/
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE and Editor Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Chrome Driver and Browser Data
+chromedriver*
+selenium_profile/
+chrome_profile/
+*.tmp
+
+# Temporary Files
+temp/
+tmp/
+*.tmp
+*.temp
+
+# Backup Files
+*.bak
+*.backup
+*_backup.*
+
+# Data Files (often contain sensitive information)
+data/
+exports/
+*.csv
+*.xlsx
+*.json
+!requirements.txt
+!package.json
+!.env.example
+
+# OS Generated Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Desktop.ini
+
+# Windows
+$RECYCLE.BIN/
+
+# macOS
+.AppleDouble
+.LSOverride
+Icon
+
+# Linux
+*~
+
+# JetBrains IDEs
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# Sublime Text
+*.tmlanguage.cache
+*.tmPreferences.cache
+*.stTheme.cache
+*.sublime-workspace
+*.sublime-project
+
+# Vim
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+[._]s[a-rt-v][a-z]
+[._]ss[a-gi-z]
+[._]sw[a-p]
+
+# Progress and State Files
+progress.json
+state.json
+checkpoint.json
+
+# API Keys and Tokens (additional patterns)
+*api_key*
+*secret*
+*token*
+*password*
+*.pem
+*.key
+*.crt
+
+# Selenium and WebDriver Cache
+.wdm/
+webdriver/
+drivers/
+
+# Google Apps Script Files (these should be manually copied)
+# Uncomment if you don't want to track .gs files
+# *.gs
+
+# Project Specific Exclusions
+# Add any project-specific files that should not be tracked
+user_data/
+output/
+results/
+
+# Documentation Build Files
+docs/_build/
+site/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# poetry
+poetry.lock
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
