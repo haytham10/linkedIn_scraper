@@ -6,7 +6,7 @@ import time
 import getpass
 import logging
 from datetime import datetime
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Tuple
 
 # Third-party imports
 import gspread
@@ -89,6 +89,45 @@ def smart_delay(min_seconds: float = 2, max_seconds: float = 5) -> None:
     import random
     delay = random.uniform(min_seconds, max_seconds)
     time.sleep(delay)
+
+# ================================
+# NAME PARSING
+# ================================
+
+def parse_name(full_name: str) -> Tuple[str, str]:
+
+    if not full_name:
+        return ("", "")
+
+    name = full_name.strip()
+    # Remove anything after comma: e.g., John Doe, PMP
+    if "," in name:
+        name = name.split(",", 1)[0].strip()
+    # Remove parentheses content
+    name = re.sub(r"\(.*?\)", "", name).strip()
+
+    parts = [p for p in name.split() if p]
+    honorifics = {"mr", "mrs", "ms", "miss", "dr", "prof", "sir", "madam"}
+    parts = [p for p in parts if p.lower().strip(".") not in honorifics]
+
+    if not parts:
+        return ("", "")
+    if len(parts) == 1:
+        return (parts[0], "")
+
+    # Remove middle initial like John A. Doe
+    if len(parts) >= 3 and len(parts[1].rstrip(".")) == 1:
+        parts = [parts[0]] + parts[2:]
+
+    particles = {"von", "van", "der", "de", "da", "di", "del", "du", "la", "le", "bin", "al"}
+    if len(parts) >= 3 and parts[-2].lower() in particles:
+        first = parts[0]
+        last = f"{parts[-2]} {parts[-1]}"
+    else:
+        first = parts[0]
+        last = parts[-1]
+
+    return (first.strip(), last.strip())
 
 # ================================
 # CHROME DRIVER SETUP
@@ -185,6 +224,10 @@ def extract_person_data(person_url: str, driver: webdriver.Chrome) -> Dict[str, 
         smart_delay(2, 4)  # Respectful delay
         person = Person(person_url, driver=driver, scrape=True, close_on_complete=False)
 
+        # Parse name into first/last
+        full_name = getattr(person, 'name', '') or ''
+        first_name, last_name = parse_name(full_name)
+
         # Infer directly from experience
         experiences = getattr(person, 'experiences', [])
         if experiences and len(experiences) > 0:
@@ -199,10 +242,10 @@ def extract_person_data(person_url: str, driver: webdriver.Chrome) -> Dict[str, 
             company_name = 'Company Not Found'
             company_linkedin_url = 'N/A'
 
-        name = getattr(person, 'name', 'N/A')
-        logger.info(f"Extracted data for {name} at {company_name}")
+        logger.info(f"Extracted data for {full_name or 'N/A'} at {company_name}")
         return {
-            'name': name or 'N/A',
+            'first_name': first_name,
+            'last_name': last_name,
             'title': title,
             'company_name': company_name,
             'company_linkedin_url': company_linkedin_url
@@ -329,30 +372,43 @@ def connect_to_google_sheets() -> gspread.Worksheet:
         logger.error(f"Failed to connect to Google Sheets: {e}")
         raise
 
-def update_sheet_row(sheet: gspread.Worksheet, row_number: int, data: List[str]) -> None:
+def update_sheet_row(sheet: gspread.Worksheet, row_number: int, values_by_header: Dict[str, str]) -> None:
     """
-    Update a specific row in the Google Sheet with extracted data.
-    
-    Args:
-        sheet: Google Sheets worksheet object
-        row_number: Row number to update (1-indexed)
-        data: List of data to write to the row
+    Update a specific row by matching headers to provided values.
+
+    Expects the sheet to have headers in row 1. Matches header names case-insensitively.
     """
     try:
-        # Update columns C through H with extracted data
-        range_name = f"C{row_number}:H{row_number}"
-        sheet.update(values=[data], range_name=range_name)
-        
-        # Update status to SCRAPED
-        sheet.update_cell(row_number, 2, "SCRAPED")
-        
+        headers = [h.strip() for h in sheet.row_values(1)]
+        header_map = {h.lower(): idx for idx, h in enumerate(headers, start=1)}  # 1-based
+
+        # Prepare batch updates for cells that exist
+        cells_to_update = []
+        for key, val in values_by_header.items():
+            idx = header_map.get(key.strip().lower())
+            if idx:
+                cells_to_update.append({'range': gspread.utils.rowcol_to_a1(row_number, idx), 'values': [[val]]})
+
+        # Perform updates
+        if cells_to_update:
+            # gspread doesn't support mixed A1 updates in one call; group by contiguous ranges is complex.
+            # We'll update each cell individually for reliability.
+            for item in cells_to_update:
+                sheet.update(item['range'], item['values'])
+
+        # Update status if Status column exists
+        status_idx = header_map.get('status')
+        if status_idx:
+            sheet.update_cell(row_number, status_idx, "SCRAPED")
+
         logger.info(f"Updated row {row_number} in Google Sheets")
-        
     except Exception as e:
         logger.error(f"Failed to update sheet row {row_number}: {e}")
         # Mark as failed if we can't update
         try:
-            sheet.update_cell(row_number, 2, "FAILED")
+            status_idx = header_map.get('status') if 'header_map' in locals() else None
+            if status_idx:
+                sheet.update_cell(row_number, status_idx, "FAILED")
         except:
             pass
         raise
@@ -402,18 +458,28 @@ def process_lead(row_data: Dict, row_number: int, driver: webdriver.Chrome,
                 'description': 'No Company URL'
             }
         
-        # Prepare data for sheet update
-        update_data = [
-            person_data['company_name'],
-            company_data.get('website', 'Not Found'),
-            company_data.get('industry', 'Not Found'),
-            company_data.get('description', 'Not Found'),
-            person_data['name'],
-            person_data['title']
-        ]
-        
+        # Prepare data for sheet update using headers
+        values_by_header = {
+            'Company': person_data['company_name'],
+            'Company Name': person_data['company_name'],
+            'Website': company_data.get('website', 'Not Found'),
+            'Industry': company_data.get('industry', 'Not Found'),
+            'Description': company_data.get('description', 'Not Found'),
+            'First Name': person_data.get('first_name', ''),
+            'FirstName': person_data.get('first_name', ''),
+            'firstName': person_data.get('first_name', ''),
+            'Last Name': person_data.get('last_name', ''),
+            'LastName': person_data.get('last_name', ''),
+            'lastName': person_data.get('last_name', ''),
+            'Title': person_data['title'],
+        }
+
+        # Filter out only headers present in sheet for efficiency
+        present_headers = set([h.strip().lower() for h in sheet.row_values(1)])
+        filtered = {k: v for k, v in values_by_header.items() if k.strip().lower() in present_headers}
+
         # Update the sheet
-        update_sheet_row(sheet, row_number, update_data)
+        update_sheet_row(sheet, row_number, filtered)
         
         logger.info(f"Successfully processed: {person_data['name']} at {person_data['company_name']}")
         

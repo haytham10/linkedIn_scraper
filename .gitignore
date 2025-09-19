@@ -8,6 +8,7 @@ credentials.json
 **/credentials.json
 .env.local
 .env.production
+linkedin_cookies.json
 
 # Log Files
 *.log

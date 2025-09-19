@@ -4,6 +4,7 @@
 # Web scraping and automation
 selenium==4.15.0
 webdriver-manager==4.0.1
+undetected-chromedriver==3.5.5
 
 # LinkedIn-specific scraper
 linkedin-scraper==2.11.2

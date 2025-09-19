@@ -3,6 +3,14 @@
 
 ## 📜 Changelog
 
+### 2025-09-19
+- v2 direct scraper added: `lead_scraper_v2.py` (no paid providers)
+  - Uses undetected-chromedriver for lower bot detection
+  - Reuses cookies (linkedin_cookies.json) to avoid frequent logins and 2FA
+  - Gentle rate limiting with jitter/backoff and safer status flow (NEW → IN_PROGRESS → SCRAPED/FAILED)
+  - Company data via linkedin_scraper.Company (website, industry, description) for reliability
+  - Flexible header mapping, including Company URL → official website, and separate fields for LinkedIn company profile URL
+
 ### 2025-09-17
 - Company name extraction improved: removes employment type (e.g., ' · Full-time')
 - Person data extraction now infers title, company name, and company LinkedIn URL directly from experience
@@ -24,6 +32,10 @@ A comprehensive solution for automated LinkedIn lead generation and AI-powered l
 - **Smart Rate Limiting**: Human-like delays to avoid detection
 - **Error Recovery**: Robust error handling and retry mechanisms
 - **Stealth Mode**: Anti-detection measures for reliable scraping
+
+Two flavors:
+- v1: `lead_scraper.py` (Selenium + webdriver-manager)
+- v2: `lead_scraper_v2.py` (undetected-chromedriver, cookie reuse, safer pacing)
 
 ### AI Lead Refinement (Google Apps Script)
 - **Pain Point Analysis**: AI identifies likely business challenges
@@ -52,6 +64,7 @@ cd linkedin-lead-scraper
 ```bash
 pip install -r requirements.txt
 ```
+This installs undetected-chromedriver for v2.
 
 ### 3. Set Up Environment Variables
 Copy the example environment file and fill in your credentials:
@@ -64,6 +77,8 @@ Edit `.env` with your information:
 YOUR_SHEET_NAME=Your Google Sheet Name
 LINKEDIN_EMAIL=your.email@example.com
 LINKEDIN_PASSWORD=your_password
+HEADLESS=true  # optional, set to false to watch the browser
+# CHROME_BINARY=C:\\Path\\to\\chrome.exe  # optional override if needed
 ```
 
 ### 4. Configure Google Sheets API
@@ -89,7 +104,7 @@ LINKEDIN_PASSWORD=your_password
 ## 📊 Google Sheet Setup
 
 ### Option 1: Use the Provided Template
-We've included a ready-to-use template file: **`LinkedIn Lead Scraper Template.xlsx`**
+We've included a ready-to-use template file: **`LinkedIn Lead Scraper Template.csv`**
 
 1. Download and open the template file
 2. Upload it to Google Sheets (File > Import)
@@ -116,6 +131,14 @@ Your Google Sheet must have these exact column headers:
 - **Project Type**: Suggested automation project (filled by AI)
 - **Personalized Opener**: AI-generated opening line (filled by AI)
 
+Header aliases supported (case-insensitive):
+- First Name/FirstName/firstName, Last Name/LastName/lastName
+- Company/Company Name
+- Company Website/Website/Website URL/Company URL → official company website
+- Company Industry/Industry
+- Company Description/Description
+- Company LinkedIn URL/Company Linkedin URL/Company Profile → LinkedIn company profile URL
+
 ## 🎯 Usage
 
 ### Step 1: Prepare Your Data
@@ -124,14 +147,19 @@ Your Google Sheet must have these exact column headers:
 
 ### Step 2: Run the Scraper
 ```bash
+# v1 (classic)
 python lead_scraper.py
+
+# v2 (direct, undetected-chromedriver + cookies)
+python lead_scraper_v2.py
 ```
 
 The scraper will:
 - Process all rows with status "NEW"
+- Set row to "IN_PROGRESS" during work (v2)
 - Extract profile and company data
 - Update the Google Sheet automatically
-- Change status to "SCRAPED" when complete
+- Change status to "SCRAPED" when complete (or "FAILED" if nothing meaningful was extracted)
 
 ### Step 3: Refine with AI
 1. In Google Sheets, go to **🤖 AI Lead Tools > Refine Scraped Leads**
@@ -143,7 +171,7 @@ The scraper will:
 
 ### Python Scraper Settings
 
-Edit `lead_scraper.py` to customize:
+Edit `lead_scraper.py` (v1) to customize:
 
 ```python
 # Chrome options for different environments
@@ -153,6 +181,19 @@ chrome_options.add_argument("--window-size=1920,1080")  # Browser size
 # Delay settings (seconds)
 smart_delay(8, 15)  # Delay between profiles
 smart_delay(3, 5)   # Delay for company pages
+```
+
+Edit `lead_scraper_v2.py` (v2) to customize:
+
+```python
+# Headless/browser
+# Use HEADLESS=false in .env to watch the browser and complete 2FA when needed
+
+# Rate limits
+smart_delay(4.5, 9.0)  # post-row pacing
+
+# Cookie persistence
+# Cookies are stored in linkedin_cookies.json; delete it if you need to re-login
 ```
 
 ### AI Refinement Settings
@@ -181,6 +222,10 @@ MAX_EXECUTION_TIME: 4.5 * 60 * 1000 // 4.5 minutes
 - **Solution**: Use the browser window to complete 2FA/captcha manually
 - **Prevention**: Use application passwords if available
 
+For v2:
+- If you’re stuck on login, set `HEADLESS=false` and try again; cookies will save once you reach the feed.
+- Delete `linkedin_cookies.json` to force a fresh login.
+
 #### Chrome Driver Issues
 - **Error**: "chromedriver.exe not found"
 - **Solution**: The script automatically downloads the correct driver
@@ -195,6 +240,7 @@ MAX_EXECUTION_TIME: 4.5 * 60 * 1000 // 4.5 minutes
 - **Error**: Too many requests
 - **Solution**: Increase delays in `smart_delay()` functions
 - **Recommendation**: Run smaller batches during off-peak hours
+- **Tip (v2)**: Keep a steady trickle. The script already adds jitter and backs off; you can raise delays further if you see friction.
 
 ### Debugging
 
@@ -228,7 +274,8 @@ MAX_EXECUTION_TIME: 4.5 * 60 * 1000 // 4.5 minutes
 
 ```
 linkedin-lead-scraper/
-├── lead_scraper.py                   # Main Python scraper
+├── lead_scraper.py                   # v1 Python scraper
+├── lead_scraper_v2.py                # v2 direct scraper (undetected-chromedriver, cookies)
 ├── lead_refinement.gs                # Google Apps Script for AI analysis
 ├── LinkedIn Lead Scraper Template.xlsx # Ready-to-use Google Sheets template
 ├── requirements.txt                  # Python dependencies
@@ -236,7 +283,8 @@ linkedin-lead-scraper/
 ├── .env                            # Your environment variables (not in repo)
 ├── credentials.json                # Google service account key (not in repo)
 ├── .gitignore                      # Git ignore rules
-├── scraper.log                     # Generated log file
+├── scraper.log                     # v1 log file
+├── scraper_v2.log                  # v2 log file
 └── README.md                       # This file
 ```
 
