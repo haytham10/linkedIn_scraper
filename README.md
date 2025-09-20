@@ -167,6 +167,41 @@ The scraper will:
 3. AI will generate pain points, project types, and personalized openers
 4. Status will change to "COMPLETE" when finished
 
+## ✉️ Email Enrichment (In-house)
+
+After scraping, run `email_enricher.py` to generate and validate likely corporate email addresses from first/last names plus the company website domain.
+
+What it does
+- Normalizes Website → domain (e.g., https://www.example.com → example.com)
+- Generates common patterns: first.last@, f.last@, first@, last@, firstl@, l.first@
+- Looks up MX records and performs a safe SMTP RCPT check (no email is sent)
+- Updates your Google Sheet columns: Email and Email Status
+
+Email Status values (all-caps to match sheet validation)
+- DELIVERABLE: RCPT accepted (very likely valid)
+- CATCH_ALL: server accepts any address (valid domain, mailbox unconfirmed)
+- MX_UNVERIFIABLE: couldn’t reach/verify MX
+- UNDELIVERABLE: candidate rejected; script moved to others
+- HEURISTIC: SMTP checks disabled; best pattern chosen
+
+Requirements
+- `requirements.txt` includes dnspython and tldextract
+- `credentials.json` service account has access to your sheet
+
+Environment variables
+- YOUR_SHEET_NAME: Required
+- ENRICH_SMTP_ENABLED: Default true. Set to false to skip SMTP checks and pick the best heuristic.
+- ENRICH_SMTP_TIMEOUT_S: Default 8
+- ENRICH_MIN_DELAY_MS / ENRICH_MAX_DELAY_MS: Jitter between SMTP attempts
+
+How to run
+1) Ensure `.env` has YOUR_SHEET_NAME and dependencies are installed
+2) Run the tool
+
+Notes
+- Social domains (linkedin.com, facebook.com, etc.) are ignored as email domains
+- The tool prefers Website/Company Website columns; it won’t fall back to LinkedIn profile URLs
+
 ## ⚙️ Configuration Options
 
 ### Python Scraper Settings
@@ -325,3 +360,5 @@ If you encounter issues:
 ---
 
 **Made with ❤️ for sales and marketing professionals**
+
+---

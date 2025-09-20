@@ -18,3 +18,5 @@ python-dotenv==1.0.0
 
 # Additional utilities
 requests==2.31.0
+dnspython==2.6.1
+tldextract==5.1.2
