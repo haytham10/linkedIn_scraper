@@ -411,13 +411,22 @@ def process_row(row: Dict[str, str], row_number: int, sheet: gspread.Worksheet, 
 
     if has_person or has_company:
         update_row_by_headers(sheet, row_number, filtered)
+        # If any field contains sentinel incomplete values, set Status back to NEW for retry
+        sentinel_values = {"No Company URL", "Extraction Failed"}
+        has_incomplete = any((v in sentinel_values) for v in filtered.values())
         if status_idx:
             try:
-                sheet.update_cell(row_number, status_idx, 'SCRAPED')
+                sheet.update_cell(row_number, status_idx, 'NEW' if has_incomplete else 'SCRAPED')
             except Exception:
                 pass
-        logger.info(f"Row {row_number}: SCRAPED {person.get('first_name','')} {person.get('last_name','')} @ {person.get('company_name','')}")
-        smart_delay(4.5, 9.0)  # Be gentle
+        if has_incomplete:
+            logger.info(
+                f"Row {row_number}: Incomplete data found ('No Company URL' or 'Extraction Failed'); set Status back to NEW for retry"
+            )
+            smart_delay(2.0, 4.0)
+        else:
+            logger.info(f"Row {row_number}: SCRAPED {person.get('first_name','')} {person.get('last_name','')} @ {person.get('company_name','')}")
+            smart_delay(4.5, 9.0)  # Be gentle
         return True
     else:
         if status_idx:
