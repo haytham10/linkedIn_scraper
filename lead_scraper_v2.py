@@ -143,8 +143,7 @@ def init_driver():
     chrome_opts.add_argument("--lang=en-US,en")
     if CHROME_BINARY:
         chrome_opts.binary_location = CHROME_BINARY
-    # Explicitly pass browser_executable_path for container environments
-    driver = uc.Chrome(options=chrome_opts, browser_executable_path=CHROME_BINARY if CHROME_BINARY else None)
+    driver = uc.Chrome(options=chrome_opts)
     driver.set_page_load_timeout(45)
     driver.set_script_timeout(45)
     return driver
