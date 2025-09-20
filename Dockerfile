@@ -2,11 +2,15 @@ FROM python:3.10-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install Chromium and minimal dependencies for headless mode
+# Install Google Chrome (stable) and runtime deps using signed repo (no apt-key)
 RUN apt-get update && \
-    apt-get install -y wget gnupg2 && \
-    wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add - && \
-    echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
+    apt-get install -y --no-install-recommends \
+        wget \
+        gpg \
+        ca-certificates && \
+    wget -O /tmp/chrome-signing-key.gpg https://dl.google.com/linux/linux_signing_key.pub && \
+    gpg --dearmor -o /usr/share/keyrings/chrome-keyring.gpg /tmp/chrome-signing-key.gpg && \
+    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/chrome-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
         google-chrome-stable \
@@ -17,8 +21,8 @@ RUN apt-get update && \
         libasound2 \
         libu2f-udev \
         libvulkan1 \
-        xdg-utils \
-    && rm -rf /var/lib/apt/lists/*
+        xdg-utils && \
+    rm -rf /var/lib/apt/lists/* /tmp/chrome-signing-key.gpg
 
 ENV CHROME_BINARY=/usr/bin/google-chrome
 ENV HEADLESS=true

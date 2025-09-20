@@ -3,6 +3,7 @@ services:
   scraper:
     build: .
     image: linkedin-scraper:latest
+    shm_size: 2g
     environment:
       - YOUR_SHEET_NAME=${YOUR_SHEET_NAME}
       - LINKEDIN_EMAIL=${LINKEDIN_EMAIL}
@@ -17,6 +18,7 @@ services:
   enricher:
     build: .
     image: linkedin-scraper:latest
+    shm_size: 1g
     environment:
       - YOUR_SHEET_NAME=${YOUR_SHEET_NAME}
       - ENRICH_SMTP_ENABLED=${ENRICH_SMTP_ENABLED:-true}
