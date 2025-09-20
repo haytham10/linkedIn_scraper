@@ -3,18 +3,24 @@ FROM python:3.10-slim
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install Chromium and minimal dependencies for headless mode
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        chromium \
+RUN apt-get update && \
+    apt-get install -y wget gnupg2 && \
+    wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add - && \
+    echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        google-chrome-stable \
+        fonts-liberation \
         libnss3 \
         libxss1 \
         libgbm1 \
         libasound2 \
-        fonts-liberation \
+        libu2f-udev \
+        libvulkan1 \
+        xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Tell our scripts where Chromium lives
-ENV CHROME_BINARY=/usr/bin/chromium
+ENV CHROME_BINARY=/usr/bin/google-chrome
 ENV HEADLESS=true
 
 WORKDIR /app
