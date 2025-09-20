@@ -3,6 +3,18 @@
 
 ## 📜 Changelog
 
+### 2025-09-20
+- Added in-house Email Enrichment tool: `email_enricher.py`
+  - Generates likely corporate emails from first/last names + website domain
+  - Validates via MX lookup and safe SMTP RCPT (no emails are sent)
+  - Processes only rows with Status = SCRAPED
+  - Writes Email and Email Status with allowed values (all-caps):
+    - DELIVERABLE, UNDELIVERABLE, CATCH_ALL, MX_UNVERIFIABLE, HEURISTIC (when SMTP disabled)
+- Domain derivation now ignores “Company URL” (since it stores LinkedIn profile URLs); prefers Website, Company Website, Website URL
+- Email pattern priority updated: first@, first.last@, flast@, firstlast@, …
+- Documentation updates: README Email Enrichment section and `.env.example`
+- Requirements updated: added `dnspython` and `tldextract`
+
 ### 2025-09-19
 - v2 direct scraper added: `lead_scraper_v2.py` (no paid providers)
   - Uses undetected-chromedriver for lower bot detection
