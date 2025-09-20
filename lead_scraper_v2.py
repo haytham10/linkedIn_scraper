@@ -54,6 +54,8 @@ LINKEDIN_EMAIL = os.getenv("LINKEDIN_EMAIL")
 LINKEDIN_PASSWORD = os.getenv("LINKEDIN_PASSWORD")
 HEADLESS = os.getenv("HEADLESS", "true").strip().lower() in {"1", "true", "yes"}
 CHROME_BINARY = os.getenv("CHROME_BINARY")
+ALLOW_CREDENTIAL_LOGIN = os.getenv("ALLOW_CREDENTIAL_LOGIN", "false").strip().lower() in {"1", "true", "yes"}
+LI_AT = os.getenv("LI_AT", "").strip()
 
 GOOGLE_SHEETS_SCOPE = [
     "https://spreadsheets.google.com/feeds",
@@ -183,8 +185,12 @@ def load_cookies(driver) -> bool:
 
 def is_logged_in(driver) -> bool:
     try:
+        # Try common authenticated markers
         WebDriverWait(driver, 8).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "a[href*='me/']"))
+            EC.any_of(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "a[href*='me/']")),
+                EC.presence_of_element_located((By.ID, "global-nav")),
+            )
         )
         return True
     except TimeoutException:
@@ -192,19 +198,51 @@ def is_logged_in(driver) -> bool:
 
 
 def login(driver) -> None:
-    # Try cookies first
-    if load_cookies(driver) and is_logged_in(driver):
-        logger.info("Logged in via persisted cookies")
-        return
+    # 1) Try existing cookies file
+    if load_cookies(driver):
+        driver.get("https://www.linkedin.com/feed/")
+        smart_delay(1.0, 1.8)
+        if is_logged_in(driver):
+            logger.info("Logged in via persisted cookies")
+            return
 
-    logger.info("Logging into LinkedIn with credentials...")
+    # 2) Try LI_AT token from env (strong single-cookie session)
+    if LI_AT:
+        try:
+            driver.get("https://www.linkedin.com/")
+            cookie = {
+                "name": "li_at",
+                "value": LI_AT,
+                "domain": ".www.linkedin.com",
+                "path": "/",
+                "secure": True,
+                "httpOnly": True,
+            }
+            driver.add_cookie(cookie)
+            driver.get("https://www.linkedin.com/feed/")
+            smart_delay(1.0, 1.8)
+            if is_logged_in(driver):
+                logger.info("Logged in via LI_AT cookie from env")
+                save_cookies(driver)
+                return
+        except Exception as e:
+            logger.debug(f"LI_AT cookie injection failed: {e}")
+
+    # 3) Only if explicitly allowed, try username/password login
+    if not ALLOW_CREDENTIAL_LOGIN:
+        raise RuntimeError(
+            "Not authenticated via cookies. To allow password login in this environment, set ALLOW_CREDENTIAL_LOGIN=true, "
+            "or set HEADLESS=false once to complete login and persist cookies, or provide LI_AT in the environment."
+        )
+
+    logger.info("Logging into LinkedIn with credentials (ALLOW_CREDENTIAL_LOGIN=true)...")
     driver.get("https://www.linkedin.com/login")
     try:
         WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.ID, "username")))
         driver.find_element(By.ID, "username").send_keys(LINKEDIN_EMAIL)
         driver.find_element(By.ID, "password").send_keys(LINKEDIN_PASSWORD)
         driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
-        WebDriverWait(driver, 20).until(EC.url_contains("/feed"))
+        WebDriverWait(driver, 30).until(EC.url_contains("/feed"))
         smart_delay(1.0, 2.0)
         save_cookies(driver)
         logger.info("Login successful")
