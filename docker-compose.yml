@@ -1,0 +1,28 @@
+version: "3.9"
+services:
+  scraper:
+    build: .
+    image: linkedin-scraper:latest
+    environment:
+      - YOUR_SHEET_NAME=${YOUR_SHEET_NAME}
+      - LINKEDIN_EMAIL=${LINKEDIN_EMAIL}
+      - LINKEDIN_PASSWORD=${LINKEDIN_PASSWORD}
+      - HEADLESS=${HEADLESS:-true}
+      - CHROME_BINARY=/usr/bin/chromium
+    volumes:
+      - ./credentials.json:/app/credentials.json:ro
+      - ./linkedin_cookies.json:/app/linkedin_cookies.json
+    command: ["python", "lead_scraper_v2.py"]
+
+  enricher:
+    build: .
+    image: linkedin-scraper:latest
+    environment:
+      - YOUR_SHEET_NAME=${YOUR_SHEET_NAME}
+      - ENRICH_SMTP_ENABLED=${ENRICH_SMTP_ENABLED:-true}
+      - ENRICH_SMTP_TIMEOUT_S=${ENRICH_SMTP_TIMEOUT_S:-8}
+      - ENRICH_MIN_DELAY_MS=${ENRICH_MIN_DELAY_MS:-400}
+      - ENRICH_MAX_DELAY_MS=${ENRICH_MAX_DELAY_MS:-1100}
+    volumes:
+      - ./credentials.json:/app/credentials.json:ro
+    command: ["python", "email_enricher.py"]
