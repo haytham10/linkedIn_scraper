@@ -28,6 +28,7 @@ import json
 import time
 import logging
 from typing import Dict, Optional, Tuple, List
+from datetime import datetime
 
 import gspread
 from dotenv import load_dotenv
@@ -54,6 +55,17 @@ LINKEDIN_EMAIL = os.getenv("LINKEDIN_EMAIL")
 LINKEDIN_PASSWORD = os.getenv("LINKEDIN_PASSWORD")
 HEADLESS = os.getenv("HEADLESS", "true").strip().lower() in {"1", "true", "yes"}
 CHROME_BINARY = os.getenv("CHROME_BINARY")
+SCRAPE_COMPANY_ABOUT = os.getenv("SCRAPE_COMPANY_ABOUT", "true").strip().lower() in {"1", "true", "yes"}
+
+# Safety & pacing configuration (very conservative defaults)
+MAX_PROFILES_PER_DAY = int(os.getenv("MAX_PROFILES_PER_DAY", "12"))
+MAX_PROFILES_PER_SESSION = int(os.getenv("MAX_PROFILES_PER_SESSION", "8"))
+PAUSE_MIN_S = float(os.getenv("PAUSE_MIN_S", "15"))
+PAUSE_MAX_S = float(os.getenv("PAUSE_MAX_S", "30"))
+PAGE_DWELL_MIN_S = float(os.getenv("PAGE_DWELL_MIN_S", "6"))
+PAGE_DWELL_MAX_S = float(os.getenv("PAGE_DWELL_MAX_S", "13"))
+HUMANIZE = os.getenv("HUMANIZE", "1").strip().lower() in {"1", "true", "yes"}
+COOLDOWN_ON_RISK_MINUTES = int(os.getenv("COOLDOWN_ON_RISK_MINUTES", "120"))
 
 GOOGLE_SHEETS_SCOPE = [
     "https://spreadsheets.google.com/feeds",
@@ -83,6 +95,133 @@ def smart_delay(min_s: float = 0.8, max_s: float = 2.5) -> None:
 def backoff_sleep(base: float, attempt: int, jitter: float = 0.4):
     import random
     time.sleep(base * (1.5 ** attempt) + random.uniform(0, jitter))
+
+
+def human_delay(min_s: float, max_s: float) -> None:
+    """Randomized wait used for between-row pacing."""
+    import random
+    time.sleep(random.uniform(min_s, max_s))
+
+
+def humanize_profile_view(driver) -> None:
+    """Add small scrolls and short dwell to look less robotic (best-effort)."""
+    if not HUMANIZE:
+        human_delay(PAGE_DWELL_MIN_S, PAGE_DWELL_MAX_S)
+        return
+    try:
+        import random
+        h = driver.execute_script("return Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);")
+        view_h = driver.execute_script("return window.innerHeight;") or 800
+        # initial dwell
+        human_delay(PAGE_DWELL_MIN_S, PAGE_DWELL_MAX_S)
+        # small scrolls
+        for _ in range(random.randint(2, 4)):
+            y = int(min(h - view_h, max(0, random.gauss(view_h * 0.8, view_h * 0.2))))
+            driver.execute_script("window.scrollTo(0, arguments[0]);", y)
+            smart_delay(0.8, 2.0)
+        # slight up-scroll
+        y2 = int(max(0, random.gauss(view_h * 0.3, view_h * 0.1)))
+        driver.execute_script("window.scrollTo(0, arguments[0]);", y2)
+        smart_delay(0.8, 1.6)
+    except Exception:
+        # fallback to a simple dwell
+        human_delay(PAGE_DWELL_MIN_S, PAGE_DWELL_MAX_S)
+
+
+USAGE_STATE_PATH = "usage_state.json"
+
+
+class SafetyGovernor:
+    """Tracks and enforces conservative usage caps to lower restriction risk."""
+
+    def __init__(self, daily_limit: int, session_limit: int, state_path: str = USAGE_STATE_PATH):
+        self.daily_limit = max(1, daily_limit)
+        self.session_limit = max(1, session_limit)
+        self.state_path = state_path
+        self.session_count = 0
+        self.date = datetime.utcnow().date().isoformat()
+        self.daily_count = 0
+        self._load()
+
+    def _load(self):
+        try:
+            if os.path.exists(self.state_path):
+                with open(self.state_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if data.get("date") == self.date:
+                    self.daily_count = int(data.get("count", 0))
+                else:
+                    # New day resets daily count
+                    self.daily_count = 0
+        except Exception:
+            self.daily_count = 0
+
+    def _save(self):
+        try:
+            with open(self.state_path, "w", encoding="utf-8") as f:
+                json.dump({"date": self.date, "count": self.daily_count}, f)
+        except Exception:
+            pass
+
+    def can_proceed(self) -> bool:
+        if self.session_count >= self.session_limit:
+            return False
+        if self.daily_count >= self.daily_limit:
+            return False
+        return True
+
+    def record_visit(self):
+        self.session_count += 1
+        self.daily_count += 1
+        self._save()
+
+
+def detect_risk(driver) -> bool:
+    """Check page for LinkedIn risk markers with fewer false positives.
+
+    Heuristics:
+    - Strong URL signals (checkpoint/challenge) → immediate risk
+    - Strong text signals ("temporarily restricted" or "account restricted") → risk
+    - Combination signals: ("unusual activity" AND ("verify" or "robot" or "captcha")) → risk
+    Uses body.innerText instead of raw HTML to avoid matches inside scripts.
+    """
+    url = ""
+    try:
+        url = (driver.current_url or "").lower()
+    except Exception:
+        pass
+
+    # URL-based strong indicators
+    url_sus = any(k in url for k in (
+        "/checkpoint/", "checkpoint/challenge", "/uas/captcha", "/checkpoint/challenge/",
+    ))
+    if url_sus:
+        logger.warning("Risk detected: checkpoint-like URL %s", url)
+        return True
+
+    # Visible text
+    try:
+        text = (driver.execute_script("return (document.body && document.body.innerText) ? document.body.innerText : '';") or "").lower()
+    except Exception:
+        try:
+            text = (driver.page_source or "").lower()
+        except Exception:
+            text = ""
+
+    # Strong text indicators
+    if "temporarily restricted" in text or "account restricted" in text:
+        logger.warning("Risk detected: restriction text on page (%s)", url)
+        return True
+
+    # Combination heuristic for unusual activity
+    unusual = ("unusual activity" in text) or ("we've detected unusual activity" in text) or ("we\u2019ve detected unusual activity" in text)
+    verifyish = ("verify" in text) or ("are you a robot" in text) or ("robot check" in text) or ("captcha" in text)
+    if unusual and verifyish:
+        logger.warning("Risk detected: unusual activity + verification challenge (%s)", url)
+        return True
+
+    # CAPTCHA only isn't enough; many pages load scripts mentioning it. Ignore unless paired above.
+    return False
 
 
 def parse_name(full_name: str) -> Tuple[str, str]:
@@ -216,6 +355,12 @@ def login(driver) -> None:
             logger.info("Login completed after manual step")
         except TimeoutException:
             raise RuntimeError("Login failed or timed out")
+    # Post-login risk check
+    try:
+        if detect_risk(driver):
+            raise RuntimeError("RiskDetected: restriction or challenge right after login")
+    except Exception:
+        pass
 
 
 # ================================
@@ -333,7 +478,8 @@ def update_row_by_headers(sheet: gspread.Worksheet, row_number: int, values_by_h
             requests.append({"range": a1, "values": [[val]]})
     # fallback to per-cell if batch_update not straightforward
     for req in requests:
-        sheet.update(req["values"], req["range"])  # pass values first, then range_name
+        # Correct order: update(range_name, values)
+        sheet.update(req["range"], req["values"])  # type: ignore[arg-type]
 
 
 # ================================
@@ -368,11 +514,17 @@ def process_row(row: Dict[str, str], row_number: int, sheet: gspread.Worksheet, 
 
     # Person
     person = scrape_person(driver, linkedin_url)
-    smart_delay(1.0, 2.0)
+    # Risk check and dwell as a human would
+    if detect_risk(driver):
+        raise RuntimeError("RiskDetected: challenge/restriction while viewing profile")
+    humanize_profile_view(driver)
 
     # Company
-    if person.get('company_linkedin_url'):
+    if person.get('company_linkedin_url') and SCRAPE_COMPANY_ABOUT:
         company = scrape_company_about(driver, person['company_linkedin_url'])
+        if detect_risk(driver):
+            raise RuntimeError("RiskDetected: challenge/restriction while viewing company page")
+        humanize_profile_view(driver)
     else:
         company = {'website': 'No Company URL', 'industry': 'No Company URL', 'description': 'No Company URL'}
 
@@ -423,10 +575,10 @@ def process_row(row: Dict[str, str], row_number: int, sheet: gspread.Worksheet, 
             logger.info(
                 f"Row {row_number}: Incomplete data found ('No Company URL' or 'Extraction Failed'); set Status back to NEW for retry"
             )
-            smart_delay(2.0, 4.0)
+            human_delay(PAUSE_MIN_S, PAUSE_MAX_S)
         else:
             logger.info(f"Row {row_number}: SCRAPED {person.get('first_name','')} {person.get('last_name','')} @ {person.get('company_name','')}")
-            smart_delay(4.5, 9.0)  # Be gentle
+            human_delay(PAUSE_MIN_S, PAUSE_MAX_S)  # Be very gentle between rows
         return True
     else:
         if status_idx:
@@ -435,7 +587,7 @@ def process_row(row: Dict[str, str], row_number: int, sheet: gspread.Worksheet, 
             except Exception:
                 pass
         logger.warning(f"Row {row_number}: No data extracted; marked FAILED")
-        smart_delay(2.0, 4.0)
+        human_delay(PAUSE_MIN_S, PAUSE_MAX_S)
         return False
 
 
@@ -450,10 +602,21 @@ def main() -> None:
     rows = sheet.get_all_records()
     logger.info(f"Loaded {len(rows)} rows from sheet '{SHEET_NAME}'")
 
+    # Log effective safety configuration
+    logger.info(
+        "Safety config -> daily_limit=%s, session_limit=%s, pause_s=[%s,%s], dwell_s=[%s,%s], humanize=%s, scrape_company=%s",
+        MAX_PROFILES_PER_DAY, MAX_PROFILES_PER_SESSION, PAUSE_MIN_S, PAUSE_MAX_S, PAGE_DWELL_MIN_S, PAGE_DWELL_MAX_S, HUMANIZE, SCRAPE_COMPANY_ABOUT,
+    )
+
+    governor = SafetyGovernor(MAX_PROFILES_PER_DAY, MAX_PROFILES_PER_SESSION)
+
     # Driver
     driver = init_driver()
     try:
         login(driver)
+        if detect_risk(driver):
+            logger.error("Risk detected immediately after login. Aborting to protect the account. Cool down for %d minutes.", COOLDOWN_ON_RISK_MINUTES)
+            return
 
         processed = 0
         failed = 0
@@ -462,13 +625,24 @@ def main() -> None:
             status = (row.get('Status') or '').strip()
             if status and status != 'NEW':
                 continue
+            if not governor.can_proceed():
+                logger.info("Session/daily cap reached (session=%d/%d, daily=%d/%d). Stopping run.",
+                            governor.session_count, MAX_PROFILES_PER_SESSION, governor.daily_count, MAX_PROFILES_PER_DAY)
+                break
             try:
                 ok = process_row(row, row_number, sheet, driver)
                 if ok:
                     processed += 1
                 else:
                     failed += 1
+                # Count any attempted visit to reduce footprint
+                governor.record_visit()
             except Exception as e:
+                msg = str(e)
+                if 'RiskDetected' in msg:
+                    logger.error("Risk detected on row %d. Stopping run immediately to protect the account. Cool down for %d minutes.",
+                                 row_number, COOLDOWN_ON_RISK_MINUTES)
+                    break
                 logger.exception(f"Row {row_number} crashed: {e}")
                 failed += 1
                 # backoff a bit to cool down
